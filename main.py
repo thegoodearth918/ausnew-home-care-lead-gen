@@ -164,8 +164,7 @@ def chat():
 
   # Check if the Run requires action (function call)
   while True:
-    run_status = client.beta.threads.runs.retrieve(thread_id=thread_id,
-                                                   run_id=run.id)
+    run_status = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
     # print(f"Run status: {run_status.status}")
     if run_status.status == 'completed':
       break
