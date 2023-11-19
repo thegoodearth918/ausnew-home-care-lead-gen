@@ -24,11 +24,8 @@ def create_assistant(client):
 
     # To change the knowledge document, modifiy the file name below to match your document
     # If you want to add multiple files, paste this function into ChatGPT and ask for it to add support for multiple files
-    # Create a list of file objects or file names
-    files = [open("ausnew_home_care_knowledge.txt", "rb"), open("gpt3.5_test.txt", "rb")]
-
-    # Upload the files with the purpose 'assistants'
-    file = client.files.create(files=files, purpose='assistants')
+    file = client.files.create(file=open("ausnew_home_care_knowledge.txt", "rb"), purpose='assistants')
+    file = client.files.create(file=open("gpt3.5_test.txt", "rb"), purpose='assistants')
 
     assistant = client.beta.assistants.create(
         # Getting assistant prompt from "prompts.py" file, edit on left panel if you want to change the prompt
@@ -46,10 +43,6 @@ def create_assistant(client):
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "thread_id": {
-                                "type": "string",
-                                "description": "The ID of the thread."
-                            },
                             "who_will_use_service": {
                                 "type":
                                 "string",
@@ -117,12 +110,8 @@ def create_assistant(client):
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "thread_id": {
-                                "type": "string",
-                                "description": "Current thread id"
-                            }
                         },
-                        "required": ["thread_id"]
+                        "required": []
                     }
                 }
             }

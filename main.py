@@ -33,10 +33,11 @@ assistant_id = functions.create_assistant(
     client)  # this function comes from "functions.py"
 
 lead_details = {}
+current_thread_id = ''
 
 
 ####################################################################
-def send_to_airtable(thread_id):
+def send_to_airtable():
   url = "https://api.airtable.com/v0/appjO6O8rmmjxcKa2/tblXQKKb0i1Z2CcjR"
   headers = {
       "Authorization": AIRTABLE_API_KEY,
@@ -45,30 +46,29 @@ def send_to_airtable(thread_id):
   data = {
       "records": [{
           "fields": {
-              "User Name": lead_details[thread_id]["name"],
-              "User Email": lead_details[thread_id]["email"],
-              "Post Code": lead_details[thread_id]["postcode"],
-              "Who will use": lead_details[thread_id]["who_will_use_service"],
-              "Type of service": lead_details[thread_id]["type_of_service"],
-              "NDIS registered": lead_details[thread_id]["ndis_registered"],
-              "Hrs per day": lead_details[thread_id]["hrs_per_day"],
-              "Days per week": lead_details[thread_id]["days_per_week"],
-              "Months": lead_details[thread_id]["months"],
-              "When to start": lead_details[thread_id]["when_to_start"]
+              "User Name": lead_details[current_thread_id]["name"],
+              "User Email": lead_details[current_thread_id]["email"],
+              "Post Code": lead_details[current_thread_id]["postcode"],
+              "Who will use": lead_details[current_thread_id]["who_will_use_service"],
+              "Type of service": lead_details[current_thread_id]["type_of_service"],
+              "NDIS registered": lead_details[current_thread_id]["ndis_registered"],
+              "Hrs per day": lead_details[current_thread_id]["hrs_per_day"],
+              "Days per week": lead_details[current_thread_id]["days_per_week"],
+              "Months": lead_details[current_thread_id]["months"],
+              "When to start": lead_details[current_thread_id]["when_to_start"]
           }
       }]
   }
   response = requests.post(url, headers=headers, json=data)
   if response.status_code == 200:
     print("Lead created successfully.")
-    del lead_details[thread_id]
+    del lead_details[current_thread_id]
     return response.json()
   else:
     print(f"Failed to create lead: {response.text}")
 
 
-def capture_lead(thread_id,
-                 who_will_use_service=None,
+def capture_lead(who_will_use_service=None,
                  type_of_service=None,
                  ndis_registered=None,
                  hrs_per_day=None,
@@ -78,26 +78,39 @@ def capture_lead(thread_id,
                  name=None,
                  email=None,
                  postcode=None):
+  captured_what = "Captured "
   if who_will_use_service is not None:
-    lead_details[thread_id]["who_will_use_service"] = who_will_use_service
+    lead_details[current_thread_id]["who_will_use_service"] = who_will_use_service
+    captured_what += "Who will use, "
   if type_of_service is not None:
-    lead_details[thread_id]["type_of_service"] = type_of_service
+    lead_details[current_thread_id]["type_of_service"] = type_of_service
+    captured_what += "type of service, "
   if ndis_registered is not None:
-    lead_details[thread_id]["ndis_registered"] = ndis_registered
+    lead_details[current_thread_id]["ndis_registered"] = ndis_registered
+    captured_what += "ndis registered, "
   if hrs_per_day is not None:
-    lead_details[thread_id]["hrs_per_day"] = hrs_per_day
+    lead_details[current_thread_id]["hrs_per_day"] = hrs_per_day
+    captured_what += "hrs per day, "
   if days_per_week is not None:
-    lead_details[thread_id]["days_per_week"] = days_per_week
+    lead_details[current_thread_id]["days_per_week"] = days_per_week
+    captured_what += "days per week, "
   if months is not None:
-    lead_details[thread_id]["months"] = months
+    lead_details[current_thread_id]["months"] = months
+    captured_what += "months, "
   if when_to_start is not None:
-    lead_details[thread_id]["when_to_start"] = when_to_start
+    lead_details[current_thread_id]["when_to_start"] = when_to_start
+    captured_what += "when to start, "
   if name is not None:
-    lead_details[thread_id]["name"] = name
+    lead_details[current_thread_id]["name"] = name
+    captured_what += "name, "
   if email is not None:
-    lead_details[thread_id]["email"] = email
+    lead_details[current_thread_id]["email"] = email
+    captured_what += "email, "
   if postcode is not None:
-    lead_details[thread_id]["postcode"] = postcode
+    lead_details[current_thread_id]["postcode"] = postcode
+    captured_what += "postcode, "
+  
+  return captured_what
 
 
 ####################################################################
@@ -136,7 +149,8 @@ def chat():
   if not thread_id:
     print("Error: Missing thread_id")
     return jsonify({"error": "Missing thread_id"}), 400
-
+  global current_thread_id
+  current_thread_id = thread_id
   print(f"Received message: {user_input} for thread ID: {thread_id}")
 
   # Add the user's message to the thread
@@ -173,29 +187,27 @@ def chat():
           email = arguments.get("email", None)
           postcode = arguments.get("postcode", None)
 
-          output = capture_lead(arguments["thread_id"], who_will_use_service,
-                                type_of_service, ndis_registered, hrs_per_day,
-                                days_per_week, months, when_to_start, name,
-                                email, postcode)
+          # capture_lead(who_will_use_service, type_of_service,
+          # ndis_registered, hrs_per_day, days_per_week,
+          # months, when_to_start, name, email, postcode)
+          output = capture_lead(who_will_use_service, type_of_service,
+                                ndis_registered, hrs_per_day, days_per_week,
+                                months, when_to_start, name, email, postcode)
           client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
                                                        run_id=run.id,
                                                        tool_outputs=[{
-                                                           "tool_call_id":
-                                                           tool_call.id,
-                                                           "output":
-                                                           json.dumps(output)
+                                                           "tool_call_id": tool_call.id,
+                                                           "output": output
                                                        }])
         elif tool_call.function.name == "send_to_airtable":
           # Process lead creation
           arguments = json.loads(tool_call.function.arguments)
-          output = send_to_airtable(thread_id)
+          output = send_to_airtable()
           client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
                                                        run_id=run.id,
                                                        tool_outputs=[{
-                                                           "tool_call_id":
-                                                           tool_call.id,
-                                                           "output":
-                                                           json.dumps(output)
+                                                           "tool_call_id": tool_call.id,
+                                                           "output": json.dumps(output)
                                                        }])
       time.sleep(1)  # Wait for a second before checking again
 
