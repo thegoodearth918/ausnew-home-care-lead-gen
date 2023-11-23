@@ -6,9 +6,11 @@ import openai
 from openai import OpenAI
 import functions
 import requests
+from flask_cors import CORS
 
 # Check OpenAI version compatibility
 from packaging import version
+
 
 required_version = version.parse("1.1.1")
 current_version = version.parse(openai.__version__)
@@ -24,19 +26,29 @@ else:
 
 # Create Flask app
 app = Flask(__name__)
+CORS(app)
 
 # Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # Create or load assistant
-assistant_id = functions.create_assistant(
-    client)  # this function comes from "functions.py"
+assistant_id = functions.create_assistant(client)  # this function comes from "functions.py"
 
 lead_details = {}
 current_thread_id = ''
 
 
 ####################################################################
+def wait_on_run(run, thread):
+    while run.status == "queued" or run.status == "in_progress":
+        run = client.beta.threads.runs.retrieve(
+            thread_id=thread.id,
+            run_id=run.id,
+        )
+        time.sleep(0.5)
+    return run
+
+
 def send_to_airtable():
   url = "https://api.airtable.com/v0/appjO6O8rmmjxcKa2/tblXQKKb0i1Z2CcjR"
   headers = {
@@ -68,7 +80,7 @@ def send_to_airtable():
     print(f"Failed to create lead: {response.text}")
 
 
-def capture_lead(who_will_use_service=None,
+def capture_lead_60s_free_evaluation(who_will_use_service=None,
                  type_of_service=None,
                  ndis_registered=None,
                  hrs_per_day=None,
@@ -135,8 +147,23 @@ def start_conversation():
       "months": None,
       "when_to_start": None
   }
+  message = client.beta.threads.messages.create(
+    thread_id=thread.id,
+    role="user",
+    content="Say hi, introduce yourself and tell me what you can help, and then ask which process the I am interested in.",
+  )
 
-  return jsonify({"thread_id": thread.id})
+  run = client.beta.threads.runs.create(
+    thread_id=thread.id,
+    assistant_id=assistant_id,
+  )
+  wait_on_run(run, thread)
+
+  messages = client.beta.threads.messages.list(
+    thread_id=thread.id, order="asc", after=message.id
+  )
+
+  return jsonify({"thread_id": thread.id, "assistant_message": messages.data[0].content[0].text.value})
 
 
 # Generate response
@@ -172,42 +199,47 @@ def chat():
 
       for tool_call in run_status.required_action.submit_tool_outputs.tool_calls:
         if tool_call.function.name == "capture_lead":
+          try:
+            arguments = json.loads(tool_call.function.arguments)
 
-          arguments = json.loads(tool_call.function.arguments)
+            who_will_use_service = arguments.get("who_will_use_service", None)
+            type_of_service = arguments.get("type_of_service", None)
+            ndis_registered = arguments.get("ndis_registered", None)
+            hrs_per_day = arguments.get("hrs_per_day", None)
+            days_per_week = arguments.get("days_per_week", None)
+            months = arguments.get("months", None)
+            when_to_start = arguments.get("when_to_start", None)
+            name = arguments.get("name", None)
+            email = arguments.get("email", None)
+            postcode = arguments.get("postcode", None)
 
-          who_will_use_service = arguments.get("who_will_use_service", None)
-          type_of_service = arguments.get("type_of_service", None)
-          ndis_registered = arguments.get("ndis_registered", None)
-          hrs_per_day = arguments.get("hrs_per_day", None)
-          days_per_week = arguments.get("days_per_week", None)
-          months = arguments.get("months", None)
-          when_to_start = arguments.get("when_to_start", None)
-          name = arguments.get("name", None)
-          email = arguments.get("email", None)
-          postcode = arguments.get("postcode", None)
-
-          # capture_lead(who_will_use_service, type_of_service,
-          # ndis_registered, hrs_per_day, days_per_week,
-          # months, when_to_start, name, email, postcode)
-          output = capture_lead(who_will_use_service, type_of_service,
-                                ndis_registered, hrs_per_day, days_per_week,
-                                months, when_to_start, name, email, postcode)
-          client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
-                                                       run_id=run.id,
-                                                       tool_outputs=[{
-                                                           "tool_call_id": tool_call.id,
-                                                           "output": output
-                                                       }])
+            # capture_lead(who_will_use_service, type_of_service,
+            # ndis_registered, hrs_per_day, days_per_week,
+            # months, when_to_start, name, email, postcode)
+            output = capture_lead(who_will_use_service, type_of_service,
+                                  ndis_registered, hrs_per_day, days_per_week,
+                                  months, when_to_start, name, email, postcode)
+            client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
+                                                        run_id=run.id,
+                                                        tool_outputs=[{
+                                                            "tool_call_id": tool_call.id,
+                                                            "output": output
+                                                        }])
+          except:
+            pass
         elif tool_call.function.name == "send_to_airtable":
-          # Process lead creation
-          arguments = json.loads(tool_call.function.arguments)
-          output = send_to_airtable()
-          client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
-                                                       run_id=run.id,
-                                                       tool_outputs=[{
-                                                           "tool_call_id": tool_call.id,
-                                                           "output": json.dumps(output)
-                                                       }])
+          try:
+            # Process lead creation
+            arguments = json.loads(tool_call.function.arguments)
+            output = send_to_airtable()
+            client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
+                                                        run_id=run.id,
+                                                        tool_outputs=[{
+                                                            "tool_call_id": tool_call.id,
+                                                            "output": json.dumps(output)
+                                                        }])
+          except:
+            pass
       time.sleep(1)  # Wait for a second before checking again
 
   # Retrieve and return the latest message from the assistant
@@ -219,4 +251,4 @@ def chat():
 
 
 if __name__ == '__main__':
-  app.run(host='0.0.0.0', port=8080)
+  app.run(host='0.0.0.0', port=8080, debug=True)
