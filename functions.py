@@ -24,30 +24,34 @@ def create_assistant(client):
 
     # To change the knowledge document, modifiy the file name below to match your document
     # If you want to add multiple files, paste this function into ChatGPT and ask for it to add support for multiple files
-    file = client.files.create(file=open("ausnew_home_care_knowledge.txt", "rb"), purpose='assistants')
-    file = client.files.create(file=open("gpt3.5_test.txt", "rb"), purpose='assistants')
+    files = []
+    files.append(client.files.create(file=open("company_knowledge.docx", "rb"), purpose='assistants'))
+    files.append(client.files.create(file=open("60-Seconds Free Evaluation for Care Package.docx", "rb"), purpose='assistants'))
+    files.append(client.files.create(file=open("No-cost evaluation for Accommodation.docx", "rb"), purpose='assistants'))
 
     assistant = client.beta.assistants.create(
         # Getting assistant prompt from "prompts.py" file, edit on left panel if you want to change the prompt
+        name="AusNew Home Care Assistant",
         instructions=assistant_instructions,
         model="gpt-3.5-turbo-1106",
+        # model="gpt-4-1106-preview",
         tools=[
             {
-                "type": "retrieval"  # This adds the knowledge base as a tool
+                "type": "retrieval"  
             },
             {
-                "type": "function",  # This adds the solar calculator as a tool
+                "type": "function",  
                 "function": {
-                    "name": "capture_lead",
-                    "description": "Capture the lead details.",
+                    "name": "get_care_evaluation_details",
+                    "description": "Capture details from the customer's responses during 60 Seconds free evaluation for care package.",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "who_will_use_service": {
+                            "who_is_this_care_for": {
                                 "type":
                                 "string",
                                 "description":
-                                "The man who will use the service, for example, customer or customer's mother."
+                                "The man who will use the service (NOT NAME, expect 'me', 'my father', 'friend', 'client' etc)"
                             },
                             "type_of_service": {
                                 "type":
@@ -59,54 +63,146 @@ def create_assistant(client):
                                 "type":
                                 "string",
                                 "description":
-                                "If the customer NDIS registered, put 'Yes, NDIS registered', else put 'No, Not registered'. If the customer is My Aged Care registered, put 'Yes, My Aged Care registered'."
+                                "NDIS registered status"
                             },
                             "hrs_per_day": {
                                 "type":
                                 "string",
                                 "description":
-                                "Number of hours per day the customer need to use the service. if the customer is not sure about it, put 'Not sure'."
+                                "Number of hours per day the customer need to use the service."
                             },
                             "days_per_week": {
                                 "type":
                                 "string",
                                 "description":
-                                "Number of days per week the customer need to use the service. if the customer is not sure about it, put 'Not sure'."
+                                "Number of days per week the customer need to use the service."
                             },
-                            "months": {
+                            "how_long": {
                                 "type":
                                 "string",
                                 "description":
-                                "How long the customer needs to use the service. if the customer is not sure about it, put 'Not sure'."
+                                "Duration the customer needs to use the service."
                             },
                             "when_to_start": {
                                 "type":
                                 "string",
                                 "description":
-                                "When the customer starts using the service. if the customer is not sure about it, put 'Not sure'"
-                            },
-                            "name": {
-                                "type": "string",
-                                "description": "Name of the lead."
-                            },
-                            "email": {
-                                "type": "string",
-                                "description": "Email of the lead."
-                            },
-                            "postcode": {
-                                "type": "string",
-                                "description": "Postcode of the lead."
+                                "When the customer starts using the service."
                             }
                         },
-                        "required": ["thread_id"]
+                        "required": []
                     }
                 }
             },
             {
-                "type": "function",  # This adds the lead capture as a tool
+                "type": "function",  
+                "function": {
+                    "name": "get_accommodation_evaluation_details",
+                    "description": "Capture details from the customer's responses during no-cost evaluation for accommodation.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "who_is_this_care_for": {
+                                "type":
+                                "string",
+                                "description":
+                                "The man who will use the service (NOT NAME, expect 'me', 'my father', 'friend', 'client' etc)"
+                            },
+                            "ndis_registered": {
+                                "type":
+                                "string",
+                                "description":
+                                "NDIS registered status"
+                            },
+                            "type_of_accommodation": {
+                                "type":
+                                "string",
+                                "description":
+                                "Type of accommodation"
+                            },
+                            "how_long": {
+                                "type":
+                                "string",
+                                "description":
+                                "Duration the customer needs to use the service."
+                            },
+                            "supported_living_services": {
+                                "type":
+                                "string",
+                                "description":
+                                "Care services along with accommodation"
+                            },
+                            "how_pay_for_rent": {
+                                "type":
+                                "string",
+                                "description":
+                                "Source of fund for accommodation"
+                            },
+                            "when_to_start": {
+                                "type": "string",
+                                "description": "When the customer starts using the service."
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "retrieve_data_for_summarization",
+                    "description": "Retrieve data from table for summarization",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_lead_info",
+                    "description": "Get lead info from the user's input",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "email": {
+                                "type": "string",
+                                "description": "email address of a customer"
+                            },
+                            "name": {
+                                "type": "string",
+                                "description": "name of a customer"
+                            },
+                            "postcode": {
+                                "type": "string",
+                                "description": "postcode of a customer"
+                            }
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
                 "function": {
                     "name": "send_to_airtable",
-                    "description": "Send captured lead details to Airtable.",
+                    "description": "Send all info to Airtable",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                        },
+                        "required": []
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "create_new_records",
+                    "description": "Create new records both in care_package table, and accommodation table of DB",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -116,8 +212,8 @@ def create_assistant(client):
                 }
             }
         ],
-        file_ids=[file.id])
-
+        file_ids = list(map(lambda file: file.id, files)))
+    
     # Create a new assistant.json file to load on future runs
     with open(assistant_file_path, 'w') as file:
       json.dump({'assistant_id': assistant.id}, file)

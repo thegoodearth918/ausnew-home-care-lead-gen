@@ -6,9 +6,11 @@ import openai
 from openai import OpenAI
 import functions
 import requests
+from flask_cors import CORS
+from datetime import datetime
 
-# Check OpenAI version compatibility
 from packaging import version
+import sqlite3
 
 required_version = version.parse("1.1.1")
 current_version = version.parse(openai.__version__)
@@ -22,22 +24,24 @@ if current_version < required_version:
 else:
   print("OpenAI version is compatible.")
 
-# Create Flask app
 app = Flask(__name__)
+CORS(app)
 
-# Initialize OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Create or load assistant
-assistant_id = functions.create_assistant(
-    client)  # this function comes from "functions.py"
-
-lead_details = {}
-current_thread_id = ''
-
+assistant_id = functions.create_assistant(client)
 
 ####################################################################
-def send_to_airtable():
+def wait_on_run(run, thread):
+    while run.status == "queued" or run.status == "in_progress":
+        run = client.beta.threads.runs.retrieve(
+            thread_id=thread.id,
+            run_id=run.id,
+        )
+        time.sleep(0.5)
+    return run
+
+def send_to_airtable_care_package(result):
   url = "https://api.airtable.com/v0/appjO6O8rmmjxcKa2/tblXQKKb0i1Z2CcjR"
   headers = {
       "Authorization": AIRTABLE_API_KEY,
@@ -46,178 +50,371 @@ def send_to_airtable():
   data = {
       "records": [{
           "fields": {
-              "User Name": lead_details[current_thread_id]["name"],
-              "User Email": lead_details[current_thread_id]["email"],
-              "Post Code": lead_details[current_thread_id]["postcode"],
-              "Who will use": lead_details[current_thread_id]["who_will_use_service"],
-              "Type of service": lead_details[current_thread_id]["type_of_service"],
-              "NDIS registered": lead_details[current_thread_id]["ndis_registered"],
-              "Hrs per day": lead_details[current_thread_id]["hrs_per_day"],
-              "Days per week": lead_details[current_thread_id]["days_per_week"],
-              "Months": lead_details[current_thread_id]["months"],
-              "When to start": lead_details[current_thread_id]["when_to_start"]
+              "User Name": result["name"],
+              "User Email": result["email"],
+              "Post Code": result["postcode"],
+              "Who will use": result["who_is_this_care_for"],
+              "Type of service": result["type_of_service"],
+              "NDIS registered": result["ndis_registered"],
+              "Hrs per day": result["hrs_per_day"],
+              "Days per week": result["days_per_week"],
+              "Months": result["how_long"],
+              "When to start": result["when_to_start"]
+          }
+      }]
+  }
+  
+  print(header)
+  print(data)
+  
+  response = requests.post(url, headers=headers, json=data)
+  if response.status_code == 200:
+    print("Lead created successfully.")
+    return response.json()
+  else:
+    print(f"Failed to create lead: {response.text}")
+
+def send_to_airtable_accommodation(result):
+  url = "https://api.airtable.com/v0/appjO6O8rmmjxcKa2/tblSzVSYpJkhDxJhq"
+  headers = {
+      "Authorization": AIRTABLE_API_KEY,
+      "Content-Type": "application/json"
+  }
+  data = {
+      "records": [{
+          "fields": {
+              "Name": result["name"],
+              "Email": result["email"],
+              "Postcode": result["postcode"],
+              "Who will use": result["who_is_this_care_for"],
+              "NDIS registered": result["ndis_registered"],
+              "Type of Accommodation": result["type_of_accommodation"],
+              "How Long": result["how_long"],
+              "Supported Living Services": result["supported_living_services"],
+              "How to pay for rent": result["how_pay_for_rent"],
+              "When to start": result["when_to_start"]
           }
       }]
   }
   response = requests.post(url, headers=headers, json=data)
   if response.status_code == 200:
     print("Lead created successfully.")
-    del lead_details[current_thread_id]
     return response.json()
   else:
     print(f"Failed to create lead: {response.text}")
 
 
-def capture_lead(who_will_use_service=None,
-                 type_of_service=None,
-                 ndis_registered=None,
-                 hrs_per_day=None,
-                 days_per_week=None,
-                 months=None,
-                 when_to_start=None,
-                 name=None,
-                 email=None,
-                 postcode=None):
-  captured_what = "Captured "
-  if who_will_use_service is not None:
-    lead_details[current_thread_id]["who_will_use_service"] = who_will_use_service
-    captured_what += "Who will use, "
-  if type_of_service is not None:
-    lead_details[current_thread_id]["type_of_service"] = type_of_service
-    captured_what += "type of service, "
-  if ndis_registered is not None:
-    lead_details[current_thread_id]["ndis_registered"] = ndis_registered
-    captured_what += "ndis registered, "
-  if hrs_per_day is not None:
-    lead_details[current_thread_id]["hrs_per_day"] = hrs_per_day
-    captured_what += "hrs per day, "
-  if days_per_week is not None:
-    lead_details[current_thread_id]["days_per_week"] = days_per_week
-    captured_what += "days per week, "
-  if months is not None:
-    lead_details[current_thread_id]["months"] = months
-    captured_what += "months, "
-  if when_to_start is not None:
-    lead_details[current_thread_id]["when_to_start"] = when_to_start
-    captured_what += "when to start, "
-  if name is not None:
-    lead_details[current_thread_id]["name"] = name
-    captured_what += "name, "
-  if email is not None:
-    lead_details[current_thread_id]["email"] = email
-    captured_what += "email, "
-  if postcode is not None:
-    lead_details[current_thread_id]["postcode"] = postcode
-    captured_what += "postcode, "
+def get_care_evaluation_details(who_is_this_care_for=None, type_of_service=None, ndis_registered=None, hrs_per_day=None,
+                 days_per_week=None, how_long=None, when_to_start=None):
+  return json.dumps({"who_is_this_care_for": who_is_this_care_for, "type_of_service": type_of_service, "ndis_registered": ndis_registered,
+                     "hrs_per_day": hrs_per_day, "days_per_week": days_per_week, "how_long": how_long, "when_to_start": when_to_start})
+
+def get_accommodation_evaluation_details(who_is_this_care_for=None, ndis_registered=None, type_of_accommodation=None,
+                 payment_for_rent=None, how_long=None, supported_living_services=None, how_pay_for_rent=None,
+                 when_to_start=None):
+  return json.dumps({"who_is_this_care_for": who_is_this_care_for, "ndis_registered": ndis_registered, "type_of_accommodation": type_of_accommodation,
+                     "payment_for_rent": payment_for_rent, "how_long": how_long, "supported_living_services": supported_living_services,
+                     "how_pay_for_rent": how_pay_for_rent, "when_to_start": when_to_start})
+
+def get_lead_info(email=None, name=None, postcode=None):
+  return json.dumps({"email": email, "name": name, "postcode": postcode})
   
-  return captured_what
+def create_new_records():
+  now = datetime.now()
+  date_string = now.strftime("%Y%m%d%H%M%S")
+  date_int = int(date_string)
+  
+  con = sqlite3.connect("extracted_data.db")
+  con.execute("pragma busy_timeout=10000")
+  cur = con.cursor()
+  
+  cur.execute(f"INSERT INTO care_package VALUES ('{thread.id}', 'None', 'None', 'None', 'None', 'None', 'None', 'None', '{date_int}')")
+  cur.execute(f"INSERT INTO accommodation VALUES ('{thread.id}', 'None', 'None', 'None', 'None', 'None', 'None', 'None', '{date_int}')")
+  
+  con.commit()
+  con.close()
+  return json.dumps({'success': True})
 
 
 ####################################################################
 
 
 # Start conversation thread
-@app.route('/start', methods=['GET'])
+@app.route('/startx', methods=['GET'])
 def start_conversation():
   print("Starting a new conversation...")
   thread = client.beta.threads.create()
   print(f"New thread created with ID: {thread.id}")
 
-  lead_details[thread.id] = {
-      "name": None,
-      "email": None,
-      "postcode": None,
-      "who_will_use_service": None,
-      "type_of_service": None,
-      "ndis_registered": None,
-      "hrs_per_day": None,
-      "days_per_week": None,
-      "months": None,
-      "when_to_start": None
-  }
+  message = client.beta.threads.messages.create(
+    thread_id=thread.id,
+    role="user",
+    content="Say hi, introduce yourself including which company you are from and ask me how you can help me today. Put a line break at the end of each sentence.",
+  )
 
-  return jsonify({"thread_id": thread.id})
+  run = client.beta.threads.runs.create(
+    thread_id=thread.id,
+    assistant_id=assistant_id,
+  )
+  wait_on_run(run, thread)
+
+  messages = client.beta.threads.messages.list(
+    thread_id=thread.id, order="asc", after=message.id
+  )
+  
+  now = datetime.now()
+  date_string = now.strftime("%Y%m%d%H%M%S")
+  date_int = int(date_string)
+  
+  con = sqlite3.connect("extracted_data.db")
+  con.execute("pragma busy_timeout=10000")
+  cur = con.cursor()
+  
+  cur.execute(f"INSERT INTO sessions VALUES ('{thread.id}', 'in progress', '{date_int}')")
+  cur.execute(f"INSERT INTO care_package VALUES ('{thread.id}', 'None', 'None', 'None', 'None', 'None', 'None', 'None', '{date_int}')")
+  cur.execute(f"INSERT INTO accommodation VALUES ('{thread.id}', 'None', 'None', 'None', 'None', 'None', 'None', 'None', '{date_int}')")
+  cur.execute(f"INSERT INTO lead_info VALUES ('{thread.id}', 'None', 'None', 'None')")
+  
+  con.commit()
+  con.close()
+  
+  return jsonify({"thread_id": thread.id, "assistant_message": messages.data[0].content[0].text.value})
 
 
 # Generate response
-@app.route('/chat', methods=['POST'])
+@app.route('/chatx', methods=['POST'])
 def chat():
+  line_counter = 0
   data = request.json
   thread_id = data.get('thread_id')
   user_input = data.get('message', '')
-
+  print("User's input: ", user_input)
   if not thread_id:
     print("Error: Missing thread_id")
     return jsonify({"error": "Missing thread_id"}), 400
-  global current_thread_id
-  current_thread_id = thread_id
-  print(f"Received message: {user_input} for thread ID: {thread_id}")
 
-  # Add the user's message to the thread
+  con = sqlite3.connect("extracted_data.db")
+  con.execute("pragma busy_timeout=10000")
+  cur = con.cursor()
+    
   client.beta.threads.messages.create(thread_id=thread_id,
                                       role="user",
                                       content=user_input)
-
-  # Run the Assistant
   run = client.beta.threads.runs.create(thread_id=thread_id,
                                         assistant_id=assistant_id)
 
-  # Check if the Run requires action (function call)
   while True:
-    run_status = client.beta.threads.runs.retrieve(thread_id=thread_id,
-                                                   run_id=run.id)
-    # print(f"Run status: {run_status.status}")
+    run_status = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+    # queued, in_progress, completed, requires_action, expired, cancelling, cancelled, failed
     if run_status.status == 'completed':
       break
     elif run_status.status == 'requires_action':
-
       for tool_call in run_status.required_action.submit_tool_outputs.tool_calls:
-        if tool_call.function.name == "capture_lead":
-
+        if tool_call.function.name == "get_care_evaluation_details":
+          # try:
           arguments = json.loads(tool_call.function.arguments)
 
-          who_will_use_service = arguments.get("who_will_use_service", None)
+          who_is_this_care_for = arguments.get("who_is_this_care_for", None)
           type_of_service = arguments.get("type_of_service", None)
           ndis_registered = arguments.get("ndis_registered", None)
           hrs_per_day = arguments.get("hrs_per_day", None)
           days_per_week = arguments.get("days_per_week", None)
-          months = arguments.get("months", None)
+          how_long = arguments.get("how_long", None)
           when_to_start = arguments.get("when_to_start", None)
-          name = arguments.get("name", None)
-          email = arguments.get("email", None)
-          postcode = arguments.get("postcode", None)
 
-          # capture_lead(who_will_use_service, type_of_service,
-          # ndis_registered, hrs_per_day, days_per_week,
-          # months, when_to_start, name, email, postcode)
-          output = capture_lead(who_will_use_service, type_of_service,
+          output = get_care_evaluation_details(who_is_this_care_for, type_of_service,
                                 ndis_registered, hrs_per_day, days_per_week,
-                                months, when_to_start, name, email, postcode)
-          client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
-                                                       run_id=run.id,
-                                                       tool_outputs=[{
-                                                           "tool_call_id": tool_call.id,
-                                                           "output": output
-                                                       }])
-        elif tool_call.function.name == "send_to_airtable":
-          # Process lead creation
-          arguments = json.loads(tool_call.function.arguments)
-          output = send_to_airtable()
-          client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
-                                                       run_id=run.id,
-                                                       tool_outputs=[{
-                                                           "tool_call_id": tool_call.id,
-                                                           "output": json.dumps(output)
-                                                       }])
-      time.sleep(1)  # Wait for a second before checking again
+                                how_long, when_to_start)
+          
+          output_json = json.loads(output)
+          res = cur.execute(f"SELECT rowid, * FROM care_package WHERE created_at = (SELECT MAX(created_at) FROM care_package WHERE session_id='{thread_id}') LIMIT 1;")
+          db_fetch_result = res.fetchall()
+          row_id = db_fetch_result[0][0]
 
-  # Retrieve and return the latest message from the assistant
+          cur.execute(f"""UPDATE care_package SET
+                      who_is_this_care_for={"'" + who_is_this_care_for + "'" if output_json["who_is_this_care_for"] != None else "'" + db_fetch_result[0][2] + "'"},
+                      type_of_service={"'" + type_of_service + "'" if output_json["type_of_service"] != None else "'" + db_fetch_result[0][3] + "'"},
+                      ndis_registered={"'" + ndis_registered + "'" if output_json["ndis_registered"] != None else "'" + db_fetch_result[0][4] + "'"},
+                      hrs_per_day={"'" + hrs_per_day + "'" if output_json["hrs_per_day"] != None else "'" + db_fetch_result[0][5] + "'"},
+                      days_per_week={"'" + days_per_week + "'" if output_json["days_per_week"] != None else "'" + db_fetch_result[0][6] + "'"},
+                      how_long={"'" + how_long + "'" if output_json["how_long"] != None else "'" + db_fetch_result[0][7] + "'"},
+                      when_to_start={"'" + when_to_start + "'" if output_json["when_to_start"] != None else "'" + db_fetch_result[0][8] + "'"} WHERE rowid={row_id}""")
+          con.commit()
+          
+          client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
+                                                      run_id=run.id,
+                                                      tool_outputs=[{
+                                                          "tool_call_id": tool_call.id,
+                                                          "output": output
+                                                      }])
+          
+          # except JSONDecodeError:
+          #   output = json.dumps({"success": True})
+          #   print(JSONDecodeError)
+          #   client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
+          #                                               run_id=run.id,
+          #                                               tool_outputs=[{
+          #                                                   "tool_call_id": tool_call.id,
+          #                                                   "output": output
+          #                                               }])
+          #   pass
+        elif tool_call.function.name == "get_accommodation_evaluation_details":
+          # try:
+          arguments = json.loads(tool_call.function.arguments)
+
+          who_is_this_care_for = arguments.get("who_is_this_care_for", None)
+          ndis_registered = arguments.get("ndis_registered", None)
+          type_of_accommodation = arguments.get("type_of_accommodation", None)
+          how_long = arguments.get("how_long", None)
+          supported_living_services = arguments.get("supported_living_services", None)
+          how_pay_for_rent = arguments.get("how_pay_for_rent", None)
+          when_to_start = arguments.get("when_to_start", None)
+
+          output = get_accommodation_evaluation_details(who_is_this_care_for, ndis_registered, type_of_accommodation, how_long,
+                supported_living_services, how_pay_for_rent, when_to_start)
+          
+          output_json = json.loads(output)
+          res = cur.execute(f"SELECT rowid, * FROM accommodation WHERE created_at = (SELECT MAX(created_at) FROM care_package WHERE session_id='{thread_id}') LIMIT 1;")
+          db_fetch_result = res.fetchall()
+          row_id = db_fetch_result[0][0]
+
+          cur.execute(f"""UPDATE care_package SET
+                      who_is_this_care_for={"'" + who_is_this_care_for + "'" if output_json["who_is_this_care_for"] != None else "'" + db_fetch_result[0][2] + "'"},
+                      ndis_registered={"'" + ndis_registered + "'" if output_json["ndis_registered"] != None else "'" + db_fetch_result[0][3] + "'"},
+                      type_of_accommodation={"'" + type_of_accommodation + "'" if output_json["type_of_accommodation"] != None else "'" + db_fetch_result[0][4] + "'"},
+                      how_long={"'" + how_long + "'" if output_json["how_long"] != None else "'" + db_fetch_result[0][5] + "'"},
+                      supported_living_services={"'" + supported_living_services + "'" if output_json["supported_living_services"] != None else "'" + db_fetch_result[0][6] + "'"},
+                      how_pay_for_rent={"'" + how_pay_for_rent + "'" if output_json["how_pay_for_rent"] != None else "'" + db_fetch_result[0][7] + "'"},
+                      when_to_start={"'" + when_to_start + "'" if output_json["when_to_start"] != None else "'" + db_fetch_result[0][8] + "'"} WHERE rowid={row_id}""")
+          con.commit()
+          
+          client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
+                                                      run_id=run.id,
+                                                      tool_outputs=[{
+                                                          "tool_call_id": tool_call.id,
+                                                          "output": output
+                                                      }])
+          # except:
+          #   pass
+        elif tool_call.function.name == "send_to_airtable":
+          cp_res = cur.execute(f"SELECT rowid, * FROM care_package WHERE session_id='{thread_id}'")
+          ac_res = cur.execute(f"SELECT rowid, * FROM accommodation WHERE session_id='{thread_id}'")
+          ld_res = cur.execute(f"SELECT rowid, * FROM lead_info WHERE session_id='{thread_id}'")
+          
+          ld_data_to_submit = ld_res.fetchall()[0]
+          
+          print(ld_data_to_submit)
+          cp_db_fetch_result = cp_res.fetchall()
+          for i in cp_db_fetch_result:
+            if i[2] == 'None' and i[3] == 'None' and i[4] == 'None' and i[5] == 'None' and i[6] == 'None' and i[7] == 'None' and i[8] == 'None':
+              continue
+            else:
+              data_to_submit = {"who_is_this_care_for": i[2], "type_of_service": i[3], "ndis_registered": i[4],
+                                "hrs_per_day": i[5], "days_per_week": i[6], "how_long": i[7], "when_to_start": i[8],
+                                "email": ld_data_to_submit[3], "name": ld_data_to_submit[2], "postcode": ld_data_to_submit[4]}
+              send_to_airtable_care_package(data_to_submit)
+              
+          ac_db_fetch_result = ac_res.fetchall()
+          for j in ac_db_fetch_result:
+            if j[2] == 'None' and j[3] == 'None' and j[4] == 'None' and j[5] == 'None' and j[6] == 'None' and j[7] == 'None' and j[8] == 'None':
+              continue
+            else:
+              data_to_submit = {"who_is_this_care_for": j[2], "ndis_registered": j[3], "type_of_accommodation": j[4],
+                                "how_long": j[5], "supported_living_services": j[6], "how_pay_for_rent": j[7], "when_to_start": j[8],
+                                "email": ld_data_to_submit[3], "name": ld_data_to_submit[2], "postcode": ld_data_to_submit[4]}
+              send_to_airtable_accommodation(data_to_submit)
+          
+          output = json.dumps({"success": True})
+          client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
+                                                        run_id=run.id,
+                                                        tool_outputs=[{
+                                                            "tool_call_id": tool_call.id,
+                                                            "output": output
+                                                        }])
+        elif tool_call.function.name == "get_lead_info":
+          arguments = json.loads(tool_call.function.arguments)
+          
+          email = arguments.get("email", None)
+          name = arguments.get("name", None)
+          postcode = arguments.get("postcode", None)
+          
+          output = get_lead_info(email, name, postcode)
+            
+          output_json = json.loads(output)
+          res = cur.execute(f"SELECT rowid, * FROM lead_info WHERE session_id='{thread_id}' LIMIT 1;")
+          db_fetch_result = res.fetchall()
+          row_id = db_fetch_result[0][0]
+
+          cur.execute(f"""UPDATE lead_info SET
+                      email={"'" + email + "'" if output_json["email"] != None else "'" + db_fetch_result[0][3] + "'"},
+                      name={"'" + name + "'" if output_json["name"] != None else "'" + db_fetch_result[0][2] + "'"},
+                      postcode={"'" + postcode + "'" if output_json["postcode"] != None else "'" + db_fetch_result[0][4] + "'"} WHERE rowid={row_id}""")
+          con.commit()
+          
+          client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
+                                                      run_id=run.id,
+                                                      tool_outputs=[{
+                                                          "tool_call_id": tool_call.id,
+                                                          "output": output
+                                                      }])
+          
+        elif tool_call.function.name == "retrieve_data_for_summarization":
+          cp_res = cur.execute(f"SELECT rowid, * FROM care_package WHERE session_id='{thread_id}'")
+          ac_res = cur.execute(f"SELECT rowid, * FROM accommodation WHERE session_id='{thread_id}'")
+          data_to_summarize = []
+
+          cp_db_fetch_result = cp_res.fetchall()
+          for i in cp_db_fetch_result:
+            if i[2] == 'None' and i[3] == 'None' and i[4] == 'None' and i[5] == 'None' and i[6] == 'None' and i[7] == 'None' and i[8] == 'None':
+              continue
+            else:
+              data_to_summarize.append({"who_is_this_care_for": i[2], "type_of_service": i[3], "ndis_registered": i[4], "hrs_per_day": i[5], "days_per_week": i[6], "how_long": i[7], "when_to_start": i[8]})
+          
+          ac_db_fetch_result = ac_res.fetchall()
+          for j in ac_db_fetch_result:
+            if j[2] == 'None' and j[3] == 'None' and j[4] == 'None' and j[5] == 'None' and j[6] == 'None' and j[7] == 'None' and j[8] == 'None':
+              continue
+            else:
+              data_to_summarize.append({"who_is_this_care_for": j[2], "ndis_registered": j[3], "type_of_accommodation": j[4], "how_long": j[5], "supported_living_services": j[6], "how_pay_for_rent": j[7], "when_to_start": j[8]})
+          
+          output = json.dumps(data_to_summarize)
+          client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
+                                                        run_id=run.id,
+                                                        tool_outputs=[{
+                                                            "tool_call_id": tool_call.id,
+                                                            "output": output
+                                                        }])
+        elif tool_call.function.name == "create_new_records":
+          now = datetime.now()
+          date_string = now.strftime("%Y%m%d%H%M%S")
+          date_int = int(date_string)
+                   
+          cur.execute(f"INSERT INTO care_package VALUES ('{thread_id}', 'None', 'None', 'None', 'None', 'None', 'None', 'None', '{date_int}')")
+          cur.execute(f"INSERT INTO accommodation VALUES ('{thread_id}', 'None', 'None', 'None', 'None', 'None', 'None', 'None', '{date_int}')")
+          con.commit()
+          output = json.dumps({'success': True})
+          client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
+                                                        run_id=run.id,
+                                                        tool_outputs=[{
+                                                            "tool_call_id": tool_call.id,
+                                                            "output": output
+                                                        }])
+          
+      time.sleep(1)
+    # elif run_status.status == "failed":
+    #   break
+    else:
+      line_counter += 1
+      print(line_counter, "---------------------------->",run_status.status)
+    
+
   messages = client.beta.threads.messages.list(thread_id=thread_id)
   response = messages.data[0].content[0].text.value
-
+  
+  con.close()
   print(f"Assistant response: {response}")
   return jsonify({"response": response})
 
 
 if __name__ == '__main__':
-  app.run(host='0.0.0.0', port=8080)
+  app.run(host='0.0.0.0', port=80, debug=True)
