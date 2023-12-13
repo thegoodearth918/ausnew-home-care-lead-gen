@@ -51,43 +51,43 @@ def create_assistant(client):
                                 "type":
                                 "string",
                                 "description":
-                                "The man who will use the service (NOT NAME, expect 'me', 'my father', 'friend', 'client' etc)"
+                                "Who is this care for?"
                             },
                             "type_of_service": {
                                 "type":
                                 "string",
                                 "description":
-                                "Type of services looking for. They can be separated by comma."
+                                "Type of services looking for."
                             },
                             "ndis_registered": {
                                 "type":
                                 "string",
                                 "description":
-                                "NDIS registered status"
+                                "NDIS registered status."
                             },
                             "hrs_per_day": {
                                 "type":
                                 "string",
                                 "description":
-                                "Number of hours per day the customer need to use the service."
+                                "How many hours per day does the customer require care services?"
                             },
                             "days_per_week": {
                                 "type":
                                 "string",
                                 "description":
-                                "Number of days per week the customer need to use the service."
+                                "How many days a week does the customer need care services?"
                             },
                             "how_long": {
                                 "type":
                                 "string",
                                 "description":
-                                "Duration the customer needs to use the service."
+                                "How long do you anticipate needing care?"
                             },
                             "when_to_start": {
                                 "type":
                                 "string",
                                 "description":
-                                "When the customer starts using the service."
+                                "When do you need care to start?"
                             }
                         },
                         "required": []
@@ -106,41 +106,41 @@ def create_assistant(client):
                                 "type":
                                 "string",
                                 "description":
-                                "The man who will use the service (NOT NAME, expect 'me', 'my father', 'friend', 'client' etc)"
+                                "Who Is The Care For?"
                             },
                             "ndis_registered": {
                                 "type":
                                 "string",
                                 "description":
-                                "NDIS registered status"
+                                "Is the customer NDIS Registered?"
                             },
                             "type_of_accommodation": {
                                 "type":
                                 "string",
                                 "description":
-                                "Type of accommodation"
+                                "What Type Of Accommodation is the customer Interested In?"
                             },
                             "how_long": {
                                 "type":
                                 "string",
                                 "description":
-                                "Duration the customer needs to use the service."
+                                "How Long Do You Anticipate Needing Accommodation?"
                             },
                             "supported_living_services": {
                                 "type":
                                 "string",
                                 "description":
-                                "Care services along with accommodation"
+                                "What Supported Living Services Does the Customer Require?"
                             },
                             "how_pay_for_rent": {
                                 "type":
                                 "string",
                                 "description":
-                                "Source of fund for accommodation"
+                                "How Would the Customer Be Paying For Rent?"
                             },
                             "when_to_start": {
                                 "type": "string",
-                                "description": "When the customer starts using the service."
+                                "description": "When Does the Customer Need Care To Start?"
                             }
                         },
                         "required": []
