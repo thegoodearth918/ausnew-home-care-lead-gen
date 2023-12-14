@@ -52,7 +52,7 @@ def wait_on_run(run, thread):
 def send_to_airtable_care_package(result):
   url = "https://api.airtable.com/v0/appjO6O8rmmjxcKa2/tblXQKKb0i1Z2CcjR"
   headers = {
-      "Authorization": AIRTABLE_API_KEY,
+      "Authorization": "Bearer " + AIRTABLE_API_KEY,
       "Content-Type": "application/json"
   }
   print("forming data part of request")
@@ -73,7 +73,7 @@ def send_to_airtable_care_package(result):
       }]
   }
   
-  print(header)
+  print(headers)
   print(data)
   
   response = requests.post(url, headers=headers, json=data)
@@ -86,7 +86,7 @@ def send_to_airtable_care_package(result):
 def send_to_airtable_accommodation(result):
   url = "https://api.airtable.com/v0/appjO6O8rmmjxcKa2/tblSzVSYpJkhDxJhq"
   headers = {
-      "Authorization": AIRTABLE_API_KEY,
+      "Authorization": "Bearer " + AIRTABLE_API_KEY,
       "Content-Type": "application/json"
   }
   data = {
@@ -119,10 +119,9 @@ def get_care_evaluation_details(who_is_this_care_for=None, type_of_service=None,
                      "hrs_per_day": hrs_per_day, "days_per_week": days_per_week, "how_long": how_long, "when_to_start": when_to_start})
 
 def get_accommodation_evaluation_details(who_is_this_care_for=None, ndis_registered=None, type_of_accommodation=None,
-                 payment_for_rent=None, how_long=None, supported_living_services=None, how_pay_for_rent=None,
-                 when_to_start=None):
+                                        how_long=None, supported_living_services=None, how_pay_for_rent=None, when_to_start=None):
   return json.dumps({"who_is_this_care_for": who_is_this_care_for, "ndis_registered": ndis_registered, "type_of_accommodation": type_of_accommodation,
-                     "payment_for_rent": payment_for_rent, "how_long": how_long, "supported_living_services": supported_living_services,
+                     "how_long": how_long, "supported_living_services": supported_living_services,
                      "how_pay_for_rent": how_pay_for_rent, "when_to_start": when_to_start})
 
 def get_lead_info(email=None, name=None, postcode=None):
@@ -363,16 +362,16 @@ def chat():
         elif tool_call.function.name == "send_to_airtable":
           try:
             cp_res = cur.execute(f"SELECT rowid, * FROM care_package WHERE session_id='{thread_id}'")
-            ac_res = cur.execute(f"SELECT rowid, * FROM accommodation WHERE session_id='{thread_id}'")
-            ld_res = cur.execute(f"SELECT rowid, * FROM lead_info WHERE session_id='{thread_id}'")
+            cp_db_fetch_result = cp_res.fetchall()
             
+            ac_res = cur.execute(f"SELECT rowid, * FROM accommodation WHERE session_id='{thread_id}'")
+            ac_db_fetch_result = ac_res.fetchall()
+
+            ld_res = cur.execute(f"SELECT rowid, * FROM lead_info WHERE session_id='{thread_id}'")
             ld_data_to_submit = ld_res.fetchall()[0]
             
-            print(ld_data_to_submit)
-            cp_db_fetch_result = cp_res.fetchall()
             for i in cp_db_fetch_result:
               if i[2] == 'None' and i[3] == 'None' and i[4] == 'None' and i[5] == 'None' and i[6] == 'None' and i[7] == 'None' and i[8] == 'None':
-                print(f"----------> skipping {i[0]}")
                 continue
               else:
                 data_to_submit = {"who_is_this_care_for": i[2], "type_of_service": i[3], "ndis_registered": i[4],
@@ -381,10 +380,8 @@ def chat():
                 print("----------> trying to send lead_info table data to airtable")
                 send_to_airtable_care_package(data_to_submit)
                 
-            ac_db_fetch_result = ac_res.fetchall()
             for j in ac_db_fetch_result:
               if j[2] == 'None' and j[3] == 'None' and j[4] == 'None' and j[5] == 'None' and j[6] == 'None' and j[7] == 'None' and j[8] == 'None':
-                print(f"----------> skipping {j[0]}")
                 continue
               else:
                 data_to_submit = {"who_is_this_care_for": j[2], "ndis_registered": j[3], "type_of_accommodation": j[4],
@@ -492,8 +489,15 @@ def chat():
                                                     run_id=run.id,
                                                     tool_outputs=total_output)
       time.sleep(1)
-    # elif run_status.status == "failed":
-    #   break
+    elif run_status.status == "failed":
+      if total_output == []:
+        total_output = [{
+            "tool_call_id": tool_call.id,
+            "output": '{"To": "The next question"}'
+          }]
+      client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id,
+                                                    run_id=run.id,
+                                                    tool_outputs=total_output)
     else:
       line_counter += 1
       print(line_counter, "---------------------------->",run_status.status)

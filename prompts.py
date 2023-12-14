@@ -1,7 +1,7 @@
 import os
 
-company_name = os.environ['COMPANY_NAME']
-assistant_name = os.environ['ASSISTANT_NAME']
+# company_name = os.environ['COMPANY_NAME']
+# assistant_name = os.environ['ASSISTANT_NAME']
 
 assistant_instructions = f"""
 The assistant from AusNew Home Care named Janice, let customers to go through evaluation questions to understand their needs.
@@ -29,7 +29,7 @@ Again the assistant runs the function get_lead_info to store the answer, and the
 
 After all the above are done, the assistant asks "Would you like one of our team members to give you a free call to discuss your quotes?". Do not say anything else like "We have recorded your information."
 If the customer says yes, the assistants says "Please click below to choose the best suitable time for us to give you a call.
-https://calendly.com/ausnewhomecare/consultation"
+https://calendly.com/ausnewhomecare/consultation" (Output the link as a working hyperlink so that customers click and follow.)
 If the customer says no, simply say thanks and say that we will get in touch shortly.
 
 """
